@@ -1,0 +1,10 @@
+{
+  "name": "veridian-extension",
+  "displayName": "Veridian — Misinformation Shield",
+  "version": "0.1.0",
+  "description": "Real-time misinformation detection overlay for web pages",
+  "manifest": {
+    "permissions": ["activeTab", "storage"],
+    "host_permissions": ["<all_urls>"]
+  }
+}

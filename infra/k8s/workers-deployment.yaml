@@ -1,0 +1,211 @@
+# ── Text Worker ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veridian-worker-text
+  labels:
+    app: veridian
+    component: worker-text
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: veridian
+      component: worker-text
+  template:
+    metadata:
+      labels:
+        app: veridian
+        component: worker-text
+    spec:
+      containers:
+        - name: worker-text
+          image: veridian/worker:latest
+          command: ["celery", "-A", "workers.celery_app:celery_app", "worker", "-Q", "text", "-c", "4", "--loglevel=info"]
+          envFrom:
+            - secretRef:
+                name: veridian-secrets
+            - configMapRef:
+                name: veridian-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: veridian-worker-text-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: veridian-worker-text
+  minReplicas: 1
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+# ── Image Worker ─────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veridian-worker-image
+  labels:
+    app: veridian
+    component: worker-image
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: veridian
+      component: worker-image
+  template:
+    metadata:
+      labels:
+        app: veridian
+        component: worker-image
+    spec:
+      containers:
+        - name: worker-image
+          image: veridian/worker:latest
+          command: ["celery", "-A", "workers.celery_app:celery_app", "worker", "-Q", "image", "-c", "2", "--loglevel=info"]
+          envFrom:
+            - secretRef:
+                name: veridian-secrets
+            - configMapRef:
+                name: veridian-config
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "2Gi"
+            limits:
+              cpu: "4000m"
+              memory: "8Gi"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: veridian-worker-image-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: veridian-worker-image
+  minReplicas: 1
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+# ── Audio Worker (GPU) ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veridian-worker-audio
+  labels:
+    app: veridian
+    component: worker-audio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: veridian
+      component: worker-audio
+  template:
+    metadata:
+      labels:
+        app: veridian
+        component: worker-audio
+    spec:
+      nodeSelector:
+        gpu: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: worker-audio
+          image: veridian/worker-gpu:latest
+          command: ["celery", "-A", "workers.celery_app:celery_app", "worker", "-Q", "audio", "-c", "1", "--loglevel=info"]
+          envFrom:
+            - secretRef:
+                name: veridian-secrets
+            - configMapRef:
+                name: veridian-config
+          resources:
+            requests:
+              cpu: "1000m"
+              memory: "4Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4000m"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+---
+# ── Video Worker (GPU) ───────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veridian-worker-video
+  labels:
+    app: veridian
+    component: worker-video
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: veridian
+      component: worker-video
+  template:
+    metadata:
+      labels:
+        app: veridian
+        component: worker-video
+    spec:
+      nodeSelector:
+        gpu: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: worker-video
+          image: veridian/worker-gpu:latest
+          command: ["celery", "-A", "workers.celery_app:celery_app", "worker", "-Q", "video", "-c", "1", "--loglevel=info"]
+          envFrom:
+            - secretRef:
+                name: veridian-secrets
+            - configMapRef:
+                name: veridian-config
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "8000m"
+              memory: "32Gi"
+              nvidia.com/gpu: "1"
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: veridian-workers-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: veridian

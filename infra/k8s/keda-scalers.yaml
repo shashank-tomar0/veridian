@@ -1,0 +1,38 @@
+# ── KEDA ScaledObjects for GPU workers ───────────────────────────────────────
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: veridian-worker-audio-scaler
+spec:
+  scaleTargetRef:
+    name: veridian-worker-audio
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  pollingInterval: 15
+  cooldownPeriod: 120
+  triggers:
+    - type: redis
+      metadata:
+        address: redis:6379
+        listName: audio
+        listLength: "5"
+        databaseIndex: "1"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: veridian-worker-video-scaler
+spec:
+  scaleTargetRef:
+    name: veridian-worker-video
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  pollingInterval: 15
+  cooldownPeriod: 180
+  triggers:
+    - type: redis
+      metadata:
+        address: redis:6379
+        listName: video
+        listLength: "3"
+        databaseIndex: "1"

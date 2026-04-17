@@ -1,0 +1,92 @@
+# ── API Namespace ────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: veridian-api
+  labels:
+    app: veridian
+    component: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: veridian
+      component: api
+  template:
+    metadata:
+      labels:
+        app: veridian
+        component: api
+    spec:
+      containers:
+        - name: api
+          image: veridian/api:latest
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: veridian-secrets
+            - configMapRef:
+                name: veridian-config
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /v1/ready
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: veridian-api
+spec:
+  selector:
+    app: veridian
+    component: api
+  ports:
+    - port: 80
+      targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: veridian-api-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: veridian-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: veridian-api-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: veridian
+      component: api

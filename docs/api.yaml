@@ -1,0 +1,674 @@
+openapi: "3.1.0"
+info:
+  title: Veridian Misinformation Response Engine API
+  description: >
+    AI-native multimodal misinformation detection and counter-narrative platform.
+    All endpoints require JWT Bearer authentication unless noted otherwise.
+  version: "0.1.0"
+  contact:
+    name: Veridian Engineering
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.veridian.dev
+    description: Production
+
+tags:
+  - name: auth
+    description: User registration and JWT authentication
+  - name: analysis
+    description: Submit and poll media analyses
+  - name: claims
+    description: Browse and filter verified claims
+  - name: voiceprint
+    description: Speaker identity verification
+  - name: image
+    description: Standalone image analysis
+  - name: health
+    description: Liveness and readiness probes
+  - name: metrics
+    description: Operational metrics (admin-only)
+  - name: webhooks
+    description: WhatsApp and Telegram webhook handlers
+
+paths:
+  /v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserCreate"
+            example:
+              email: journalist@newsorg.com
+              password: securepassword123
+              full_name: Jane Reporter
+              organization: Global News Network
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        "409":
+          description: Email already registered
+
+  /v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Authenticate and receive JWT tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+            example:
+              email: journalist@newsorg.com
+              password: securepassword123
+      responses:
+        "200":
+          description: Token pair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+              example:
+                access_token: eyJhbGciOiJIUzI1NiIs...
+                refresh_token: eyJhbGciOiJIUzI1NiIs...
+                token_type: bearer
+                expires_in: 3600
+        "401":
+          description: Invalid credentials
+
+  /v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+              required: [refresh_token]
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+
+  /v1/analyze:
+    post:
+      tags: [analysis]
+      summary: Submit media for misinformation analysis
+      description: >
+        Returns an analysis_id immediately. The analysis is processed
+        asynchronously via Celery workers. Poll GET /v1/analyze/{id}
+        or provide a callback_url for webhook delivery.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalyzeRequest"
+            examples:
+              text:
+                summary: Analyse text claim
+                value:
+                  text: "The government announced free electricity for all citizens starting next month."
+                  media_type: text
+                  language: en
+              image:
+                summary: Analyse image with caption
+                value:
+                  media_url: "https://storage.example.com/image.jpg"
+                  text: "Flooding in Jakarta today"
+                  media_type: image
+      responses:
+        "200":
+          description: Analysis queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyzeResponse"
+              example:
+                analysis_id: "550e8400-e29b-41d4-a716-446655440000"
+                status: pending
+                message: Analysis queued successfully
+        "429":
+          description: Rate limit exceeded
+
+  /v1/analyze/{analysis_id}:
+    get:
+      tags: [analysis]
+      summary: Poll analysis status and result
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: analysis_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Analysis status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalysisStatusResponse"
+        "404":
+          description: Analysis not found
+
+  /v1/claims:
+    get:
+      tags: [claims]
+      summary: Paginated claim browser with filters
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: language
+          in: query
+          schema:
+            type: string
+        - name: verdict
+          in: query
+          schema:
+            type: string
+            enum: [TRUE, FALSE, MISLEADING, UNVERIFIABLE]
+        - name: search_query
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated claims
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimListResponse"
+
+  /v1/claims/graph:
+    get:
+      tags: [claims]
+      summary: Claim relationship graph for D3.js visualisation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Graph data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaimGraphResponse"
+
+  /v1/voiceprint/verify:
+    post:
+      tags: [voiceprint]
+      summary: Verify speaker identity against voiceprint DB
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: 16kHz mono WAV file
+              required: [audio]
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceprintResponse"
+
+  /v1/image/analyze:
+    post:
+      tags: [image]
+      summary: Standalone image analysis (ELA + DIRE + CLIP)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                caption:
+                  type: string
+              required: [image]
+      responses:
+        "200":
+          description: Image analysis result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImageAnalysisResponse"
+
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Liveness probe
+      responses:
+        "200":
+          description: Service alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/ready:
+    get:
+      tags: [health]
+      summary: Readiness probe (checks downstream deps)
+      responses:
+        "200":
+          description: Service ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadinessResponse"
+
+  /v1/metrics:
+    get:
+      tags: [metrics]
+      summary: Operational metrics (admin-only)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsResponse"
+
+  /webhooks/whatsapp:
+    get:
+      tags: [webhooks]
+      summary: WhatsApp webhook verification
+      parameters:
+        - name: hub.mode
+          in: query
+          schema:
+            type: string
+        - name: hub.verify_token
+          in: query
+          schema:
+            type: string
+        - name: hub.challenge
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Challenge response
+    post:
+      tags: [webhooks]
+      summary: WhatsApp message webhook
+      responses:
+        "200":
+          description: Acknowledged
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    AnalyzeRequest:
+      type: object
+      properties:
+        media_url:
+          type: string
+          nullable: true
+        text:
+          type: string
+          nullable: true
+        media_type:
+          type: string
+          enum: [text, image, audio, video]
+        language:
+          type: string
+          default: auto
+        callback_url:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+      required: [media_type]
+
+    AnalyzeResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        message:
+          type: string
+
+    AnalysisStatusResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+        status:
+          type: string
+        trust_receipt:
+          $ref: "#/components/schemas/TrustReceipt"
+          nullable: true
+        error:
+          type: string
+          nullable: true
+
+    TrustReceipt:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+        overall_verdict:
+          type: string
+          enum: [TRUE, FALSE, MISLEADING, UNVERIFIABLE]
+        overall_confidence:
+          type: number
+          format: float
+        detection_scores:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionScore"
+        claim_verdicts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimVerdict"
+        media_type:
+          type: string
+        processing_time_ms:
+          type: number
+        created_at:
+          type: string
+          format: date-time
+
+    DetectionScore:
+      type: object
+      properties:
+        model_name:
+          type: string
+        score:
+          type: number
+          minimum: 0
+          maximum: 1
+        verdict:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+
+    ClaimVerdict:
+      type: object
+      properties:
+        claim_text:
+          type: string
+        verdict:
+          type: string
+        confidence:
+          type: number
+        reasoning:
+          type: string
+        evidence_used:
+          type: array
+          items:
+            $ref: "#/components/schemas/EvidenceItem"
+
+    EvidenceItem:
+      type: object
+      properties:
+        source_url:
+          type: string
+        source_name:
+          type: string
+        excerpt:
+          type: string
+        relevance_score:
+          type: number
+
+    ClaimListResponse:
+      type: object
+      properties:
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClaimResponse"
+        total_count:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        has_next:
+          type: boolean
+
+    ClaimResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        original_text:
+          type: string
+        language:
+          type: string
+        verdict:
+          type: string
+        confidence:
+          type: number
+        reasoning:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    ClaimGraphResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+              verdict:
+                type: string
+        edges:
+          type: array
+          items:
+            type: object
+            properties:
+              source:
+                type: string
+              target:
+                type: string
+              similarity_score:
+                type: number
+
+    TokenRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+      required: [email, password]
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+
+    UserCreate:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        full_name:
+          type: string
+        organization:
+          type: string
+          nullable: true
+        permission:
+          type: string
+          enum: [read, analyze, admin]
+          default: read
+      required: [email, password, full_name]
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        organization:
+          type: string
+        permission:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        is_active:
+          type: boolean
+
+    VoiceprintResponse:
+      type: object
+      properties:
+        speaker_match:
+          type: boolean
+        confidence:
+          type: number
+        matched_person:
+          type: string
+          nullable: true
+        embedding_dim:
+          type: integer
+
+    ImageAnalysisResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+        detections:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectionScore"
+        overall_forgery_score:
+          type: number
+        ai_generated_score:
+          type: number
+        context_mismatch_score:
+          type: number
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        service:
+          type: string
+        version:
+          type: string
+        timestamp:
+          type: string
+
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        postgres:
+          type: string
+        redis:
+          type: string
+        qdrant:
+          type: string
+
+    MetricsResponse:
+      type: object
+      properties:
+        analyses_total:
+          type: number
+        analyses_completed:
+          type: number
+        analyses_failed:
+          type: number
+        avg_processing_ms:
+          type: number
+        active_workers:
+          type: number
+        uptime_seconds:
+          type: number
+        cache_hit_rate:
+          type: number
