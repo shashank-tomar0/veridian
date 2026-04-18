@@ -15,7 +15,8 @@ from backend.services.orchestrator import orchestrator
 from backend.models.base import init_models
 
 logger = structlog.get_logger()
-PUBLIC_IP = os.getenv("PUBLIC_IP", "127.0.0.1") # Default to localhost if not set
+# Handle Render/Public URL detection for standalone bot mode
+PUBLIC_URL = os.getenv("RENDER_EXTERNAL_URL", f"http://{os.getenv('PUBLIC_IP', '127.0.0.1')}:8000")
 
 # Elite Persistence for Notifier Agent
 CHATS_FILE = "registered_chats.json"
@@ -54,7 +55,7 @@ async def viral_monitor_task(application: Application):
                         logger.warning("viral_spike_detected", topic=s['topic'], count=s['count'])
                         
                         # BROADCAST TO EVERYONE: Forensic Intelligence Bulletin
-                        report_url = f"http://{PUBLIC_IP}:3000/receipt/{s['last_id']}"
+                        report_url = f"{PUBLIC_URL}/receipt/{s['last_id']}"
                         alert_text = (
                             f"🚨 <b>COORDINATED DISINFO ALERT</b>\n"
                             f"────────────────────────\n"
@@ -168,7 +169,6 @@ async def post_init(application: Application):
 async def wait_for_analysis(status_msg, analysis_id: str):
     """Poll for result and update the message with the WHOLE result."""
     from urllib.parse import urlparse
-    PUBLIC_IP = "139.5.198.26" # Elite Mobile-Ready IP
     while True:
         await asyncio.sleep(2)
         res = await orchestrator.get_status(analysis_id)
@@ -298,7 +298,7 @@ async def wait_for_analysis(status_msg, analysis_id: str):
                     f"{labels['signals']}: {html.escape(', '.join(signals))}{audio_tag}\n"
                     f"{labels['temporal']}: Verified (Focus: {html.escape(primary_claim.get('context', 'Current status'))})\n"
                     f"{labels['report']}:\n{structured_response}\n\n"
-                    f"{labels['full_report']}:\nhttp://{PUBLIC_IP}:3000/receipt/{analysis_id}\n\n"
+                    f"{labels['full_report']}:\n{PUBLIC_URL}/receipt/{analysis_id}\n\n"
                     f"{labels['engine_id']}: <code>{analysis_id[:8]}</code>\n"
                     f"────────────────────\n"
                     f"{labels['footer']}"
@@ -315,7 +315,7 @@ async def wait_for_analysis(status_msg, analysis_id: str):
                 
                 # 2. Send QR Code (External API) - Isolated failure
                 try:
-                    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=http://{PUBLIC_IP}:3000/receipt/{analysis_id}"
+                    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={PUBLIC_URL}/receipt/{analysis_id}"
                     await status_msg.reply_photo(qr_url)
                 except Exception as qr_err:
                     logger.warning(f"QR Code generation failed: {qr_err}. Report remains sent.")

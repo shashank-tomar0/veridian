@@ -27,6 +27,7 @@ from backend.routers import (
     voiceprint,
     webhooks,
     dashboard,
+    receipts,
 )
 
 logger = structlog.get_logger()
@@ -94,3 +95,4 @@ app.include_router(image.router)
 app.include_router(metrics.router)
 app.include_router(webhooks.router)
 app.include_router(dashboard.router)
+app.include_router(receipts.router)
