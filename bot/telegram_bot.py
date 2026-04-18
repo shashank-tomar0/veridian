@@ -163,8 +163,24 @@ async def post_init(application: Application):
     await init_models()
     print("DEBUG: [INIT] Zero-Config Database ready.")
     
+# Start the Neural Keep-Alive Pulse (Prevents Render Sleep)
+    asyncio.create_task(keep_alive_task())
+    
     # Start the Viral Flagger Monitor
     asyncio.create_task(viral_monitor_task(application))
+
+async def keep_alive_task():
+    """Periodically pulses the API to prevent Render web-service hibernation."""
+    client = httpx.AsyncClient(timeout=10)
+    logger.info("keep_alive.started", url=PUBLIC_URL)
+    while True:
+        try:
+            # We pulse the health endpoint every 5 minutes
+            await asyncio.sleep(300) 
+            resp = await client.get(f"{PUBLIC_URL}/v1/health")
+            logger.info("keep_alive.pulse", status=resp.status_code)
+        except Exception as e:
+            logger.warning("keep_alive.failed", error=str(e))
 
 async def wait_for_analysis(status_msg, analysis_id: str):
     """Poll for result and update the message with the WHOLE result."""

@@ -4,10 +4,8 @@ services:
     name: veridian-engine
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port 8000
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PORT
-        value: 8000
       - key: DATABASE_URL
         fromDatabase:
           name: veridian-db
@@ -68,4 +66,4 @@ databases:
 redis:
   - name: veridian-cache
     plan: free
-    ipAllowList: [] # Only allow internal connections
+    # Note: ipAllowList is omitted as the Free Tier is private-only by default.
