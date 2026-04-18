@@ -33,12 +33,9 @@ services:
           type: redis
           name: veridian-cache
           property: connectionString
-      # Bot needs to know the API URL to generate receipt links
-      - key: RENDER_EXTERNAL_URL
-        fromService:
-          type: web
-          name: veridian-engine
-          property: url
+      # Note: 'property: url' is not supported in fromService. 
+      # Please add RENDER_EXTERNAL_URL to your 'veridian-secrets' group manually
+      # format: https://veridian-engine.onrender.com
       - fromGroup: veridian-secrets
 
   # ── Veridian Forensic Workers (Analysis Nodes) ─────────────────────────────
@@ -63,7 +60,7 @@ services:
   - type: redis
     name: veridian-cache
     plan: free
-    # Note: Access is internal-only by default on Free tier.
+    ipAllowList: [] # Required line for blueprint validation
 
 databases:
   - name: veridian-db
