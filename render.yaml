@@ -59,11 +59,12 @@ services:
           property: connectionString
       - fromGroup: veridian-secrets
 
+  # ── Veridian Redis (Neural Cache) ──────────────────────────────────────────
+  - type: redis
+    name: veridian-cache
+    plan: free
+    # Note: Access is internal-only by default on Free tier.
+
 databases:
   - name: veridian-db
     plan: free
-
-redis:
-  - name: veridian-cache
-    plan: free
-    # Note: ipAllowList is omitted as the Free Tier is private-only by default.
