@@ -10,7 +10,10 @@ import numpy as np
 import torch
 from PIL import Image
 
+import structlog
 from ml.base import DetectionResult
+
+logger = structlog.get_logger()
 
 
 class DIREDetector:
@@ -22,6 +25,7 @@ class DIREDetector:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = None
         self._is_loaded = False
+        self.uncalibrated = False
 
     def load_model(self) -> None:
         if self._is_loaded:
@@ -51,10 +55,12 @@ class DIREDetector:
             if "model_state_dict" in checkpoint:
                 self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
 
-            self.model = self.model.to(self.device)
             self.model.eval()
+            self.uncalibrated = False
         except Exception:
-            # Fallback: use a fresh ResNet (will produce random scores until fine-tuned)
+            logger.warning("dire.weights_missing", message="DIRE weights failed to load. Running in uncalibrated mode.")
+            self.uncalibrated = True
+            # Fallback
             from torchvision import models
 
             self.model = models.resnet50(weights=None)
@@ -79,6 +85,13 @@ class DIREDetector:
     def predict(self, image_path: str) -> DetectionResult:
         if not self._is_loaded:
             self.load_model()
+
+        if self.uncalibrated:
+            return DetectionResult(
+                score=0.01,
+                metadata={"status": "uncalibrated_fallback", "model": "DIRE"},
+                verdict="LIKELY_REAL"
+            )
 
         tensor = self._preprocess(image_path)
 

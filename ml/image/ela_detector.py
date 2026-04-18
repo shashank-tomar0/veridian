@@ -3,7 +3,10 @@ import numpy as np
 from PIL import Image, ImageChops, ImageEnhance
 import io
 import base64
+import structlog
 from ml.base import DetectionResult
+
+logger = structlog.get_logger()
 
 class ELADetector:
     def __init__(self, config: dict | None = None):

@@ -1,8 +1,46 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 /**
  * Dashboard — Main page with KPI cards, trending claims, and recent receipts.
+ * Now connected to the actual Veridian Backend.
  */
 
 export default function DashboardPage() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchSummary() {
+      try {
+        const res = await fetch("http://localhost:8000/v1/public/dashboard/summary");
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchSummary();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-7xl px-6 py-8 animate-pulse">
+         <div className="h-8 w-48 bg-gray-800 rounded mb-10"></div>
+         <div className="grid gap-5 grid-cols-4 mb-10">
+            {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-900 rounded-xl"></div>)}
+         </div>
+         <div className="grid gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2 h-64 bg-gray-900 rounded-xl"></div>
+            <div className="lg:col-span-1 h-64 bg-gray-900 rounded-xl"></div>
+         </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-6 py-8">
       {/* ── Hero ────────────────────────────────────────────────────── */}
@@ -15,34 +53,16 @@ export default function DashboardPage() {
 
       {/* ── KPI Cards ───────────────────────────────────────────────── */}
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-10">
-        <KPICard
-          title="Analyses Today"
-          value="1,284"
-          delta="+12%"
-          positive
-          icon="📊"
-        />
-        <KPICard
-          title="Claims Verified"
-          value="847"
-          delta="+8%"
-          positive
-          icon="✅"
-        />
-        <KPICard
-          title="Deepfakes Detected"
-          value="23"
-          delta="+156%"
-          positive={false}
-          icon="🎭"
-        />
-        <KPICard
-          title="Avg Response Time"
-          value="2.4s"
-          delta="-18%"
-          positive
-          icon="⚡"
-        />
+        {data?.kpis?.map((kpi: any, idx: number) => (
+          <KPICard
+            key={idx}
+            title={kpi.title}
+            value={kpi.value}
+            delta={kpi.delta}
+            positive={kpi.positive}
+            icon={kpi.icon}
+          />
+        ))}
       </div>
 
       {/* ── Two-column content ──────────────────────────────────────── */}
@@ -52,36 +72,19 @@ export default function DashboardPage() {
           <div className="glass-card p-6">
             <h2 className="text-lg font-semibold mb-4">Trending Claims</h2>
             <div className="space-y-3">
-              <ClaimRow
-                claim="Government announces free electricity for all citizens"
-                verdict="FALSE"
-                confidence={0.94}
-                time="12m ago"
-              />
-              <ClaimRow
-                claim="New study shows coffee prevents cancer"
-                verdict="MISLEADING"
-                confidence={0.78}
-                time="34m ago"
-              />
-              <ClaimRow
-                claim="Central bank confirms interest rate unchanged"
-                verdict="TRUE"
-                confidence={0.97}
-                time="1h ago"
-              />
-              <ClaimRow
-                claim="Viral image of flooding is from a different country"
-                verdict="FALSE"
-                confidence={0.91}
-                time="2h ago"
-              />
-              <ClaimRow
-                claim="Celebrity endorses cryptocurrency scheme"
-                verdict="FALSE"
-                confidence={0.88}
-                time="3h ago"
-              />
+              {data?.trending_claims?.length > 0 ? (
+                data.trending_claims.map((c: any) => (
+                  <ClaimRow
+                    key={c.id}
+                    claim={c.claim}
+                    verdict={c.verdict}
+                    confidence={c.confidence}
+                    time={c.time}
+                  />
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 py-4 italic">No claims processed yet. Send a claim to the bot!</p>
+              )}
             </div>
           </div>
         </div>
@@ -91,30 +94,20 @@ export default function DashboardPage() {
           <div className="glass-card p-6">
             <h2 className="text-lg font-semibold mb-4">Recent Receipts</h2>
             <div className="space-y-4">
-              <ReceiptCard
-                id="VR-8847"
-                verdict="FALSE"
-                mediaType="video"
-                time="5m ago"
-              />
-              <ReceiptCard
-                id="VR-8846"
-                verdict="TRUE"
-                mediaType="text"
-                time="18m ago"
-              />
-              <ReceiptCard
-                id="VR-8845"
-                verdict="MISLEADING"
-                mediaType="image"
-                time="42m ago"
-              />
-              <ReceiptCard
-                id="VR-8844"
-                verdict="FALSE"
-                mediaType="audio"
-                time="1h ago"
-              />
+              {data?.recent_receipts?.length > 0 ? (
+                data.recent_receipts.map((r: any) => (
+                  <ReceiptCard
+                    key={r.real_id}
+                    id={r.id}
+                    verdict={r.verdict}
+                    mediaType={r.mediaType}
+                    time={r.time}
+                    onLink={() => window.location.href = `/receipt/${r.real_id}`}
+                  />
+                ))
+              ) : (
+                <p className="text-sm text-gray-500 py-4 italic">No receipts generated yet.</p>
+              )}
             </div>
           </div>
         </div>
@@ -211,11 +204,13 @@ function ReceiptCard({
   verdict,
   mediaType,
   time,
+  onLink,
 }: {
   id: string;
   verdict: string;
   mediaType: string;
   time: string;
+  onLink?: () => void;
 }) {
   const mediaIcons: Record<string, string> = {
     text: "📝",
@@ -225,7 +220,10 @@ function ReceiptCard({
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-lg bg-gray-900/40 px-4 py-3 transition-colors hover:bg-gray-800/60 cursor-pointer">
+    <div 
+      onClick={onLink}
+      className="flex items-center gap-3 rounded-lg bg-gray-900/40 px-4 py-3 transition-colors hover:bg-gray-800/60 cursor-pointer border border-transparent hover:border-emerald-500/20"
+    >
       <span className="text-lg">{mediaIcons[mediaType] || "📄"}</span>
       <div className="flex-1">
         <div className="flex items-center gap-2">

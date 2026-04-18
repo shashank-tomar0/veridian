@@ -26,6 +26,7 @@ from backend.routers import (
     metrics,
     voiceprint,
     webhooks,
+    dashboard,
 )
 
 logger = structlog.get_logger()
@@ -49,11 +50,19 @@ structlog.configure(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle hooks."""
-    await qdrant_service.initialize_collections()
-    logger.info("application_startup", message="Veridian API started")
+    try:
+        await qdrant_service.initialize_collections()
+        logger.info("application_startup", message="Veridian API started with Qdrant clusters")
+    except Exception as e:
+        logger.warning("application_startup_warning", message=f"Qdrant not available: {e}. Fact-checking Layer 7 will be disabled, but SQLite reports remain accessible.")
+    
     yield
-    await cache_service.close()
-    await graph_service.close()
+    
+    try:
+        await cache_service.close()
+        await graph_service.close()
+    except Exception:
+        pass
     logger.info("application_shutdown", message="Veridian API stopped")
 
 
@@ -84,3 +93,4 @@ app.include_router(voiceprint.router)
 app.include_router(image.router)
 app.include_router(metrics.router)
 app.include_router(webhooks.router)
+app.include_router(dashboard.router)

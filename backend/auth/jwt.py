@@ -21,8 +21,9 @@ from backend.schemas.auth import Permission
 
 logger = structlog.get_logger()
 
-# ── Password hashing ────────────────────────────────────────────────────────
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Using pbkdf2_sha256 for maximum compatibility and security on Windows/Python 3.13.
+# It is pure-python and bypasses buggy bcrypt binaries.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 security = HTTPBearer()
 

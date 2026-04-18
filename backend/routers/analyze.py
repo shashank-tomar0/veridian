@@ -5,13 +5,19 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+import shutil
+import tempfile
+import os
+
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.auth.jwt import get_current_user, require_permission
 from backend.deps import get_db, get_cache
 from backend.db.cache import CacheService
 from backend.models.claim import AnalysisResult
+from backend.services.orchestrator import orchestrator
 from backend.models.user import User
 from backend.schemas.analysis import (
     AnalysisStatus,
@@ -31,42 +37,40 @@ router = APIRouter(prefix="/v1", tags=["analysis"])
 async def submit_analysis(
     body: AnalyzeRequest,
     user: User = Depends(require_permission(Permission.ANALYZE)),
-    db: AsyncSession = Depends(get_db),
-    cache: CacheService = Depends(get_cache),
 ):
-    """Submit media or text for asynchronous misinformation analysis.
-
-    Returns an analysis_id immediately; poll GET /v1/analyze/{id} or register
-    a callback_url for webhook delivery.
-    """
-    # Rate-limit check
-    allowed = await cache.rate_limit_check(user.id, user.permission)
-    if not allowed:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded for your tier")
-
-    analysis_id = str(uuid.uuid4())
-
-    # Persist pending record
-    record = AnalysisResult(
-        id=analysis_id,
-        media_hash=str(uuid.uuid4()),  # computed from actual content in prod
+    """Lite: Submit for cloud analysis via Orchestrator."""
+    analysis_id = await orchestrator.analyze(
         media_type=body.media_type.value,
-        status="pending",
+        text=body.text,
+        language=body.language
     )
-    db.add(record)
-    await db.commit()
+    return AnalyzeResponse(analysis_id=analysis_id)
 
-    # Dispatch Celery task chain
-    metadata = {
-        "text": body.text or "",
-        "callback_url": body.callback_url,
-        "user_id": user.id,
-        **body.metadata,
-    }
-    analyze_media.delay(analysis_id, body.media_url or "", body.media_type.value, metadata)
 
-    logger.info("analysis.submitted", analysis_id=analysis_id, media_type=body.media_type.value)
+@router.post("/analyze/upload", response_model=AnalyzeResponse)
+async def upload_analysis(
+    media_file: UploadFile = File(...),
+    media_type: str = Form(...),
+    text: Optional[str] = Form(None),
+    language: str = Form("auto"),
+    user: User = Depends(require_permission(Permission.ANALYZE)),
+):
+    """Premium Lite: Upload media directly and analyze via cloud orchestration."""
+    # 1. Save to temp file
+    suffix = os.path.splitext(media_file.filename)[1]
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(media_file.file, tmp)
+        file_path = tmp.name
 
+    # 2. Dispatch to Orchestrator
+    analysis_id = await orchestrator.analyze(
+        media_type=media_type,
+        text=text,
+        file_path=file_path,
+        language=language
+    )
+
+    logger.info("analysis.upload_submitted", analysis_id=analysis_id, media_type=media_type)
     return AnalyzeResponse(analysis_id=analysis_id)
 
 
@@ -87,13 +91,20 @@ async def get_analysis_status(
     if record is None:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    # If completed, try to pull cached Trust Receipt
+    # If completed, pull from SQL (primary for lite) or Redis (cache)
     trust_receipt = None
     if record.completed:
-        cached = await cache.get_cached_result(record.media_hash)
-        if cached:
+        # Priority 1: SQL result_json (Always available in Lite)
+        if record.result_json:
+            import json
             from backend.schemas.analysis import TrustReceipt
-            trust_receipt = TrustReceipt(**cached)
+            trust_receipt = TrustReceipt(**json.loads(record.result_json))
+        # Priority 2: Redis Cache (Speed)
+        else:
+            cached = await cache.get_cached_result(record.media_hash)
+            if cached:
+                from backend.schemas.analysis import TrustReceipt
+                trust_receipt = TrustReceipt(**cached)
 
     return AnalysisStatusResponse(
         analysis_id=analysis_id,

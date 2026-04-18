@@ -26,4 +26,5 @@ class AnalysisResult(Base):
     media_type: Mapped[str] = mapped_column(String(20), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    result_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

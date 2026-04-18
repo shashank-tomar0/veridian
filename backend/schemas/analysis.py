@@ -61,6 +61,7 @@ class AnalyzeResponse(BaseModel):
 # ── Detection Result Schemas ─────────────────────────────────────────────────
 
 class DetectionScore(BaseModel):
+    model_config = {"protected_namespaces": ()}
     model_name: str = Field(..., description="Detector that produced the score")
     score: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0‒1")
     verdict: str | None = None

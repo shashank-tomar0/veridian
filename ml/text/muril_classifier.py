@@ -1,48 +1,42 @@
-import torch
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+import logging
+from langchain_groq import ChatGroq
+from langchain_core.messages import HumanMessage, SystemMessage
 from ml.base import DetectionResult
+from backend.config import settings
+
+logger = logging.getLogger(__name__)
 
 class MurilClassifier:
     def __init__(self, config: dict | None = None):
         self.config = config or {}
-        self.model_id = "google/muril-base-cased"
-        self.device = "cpu" # Forced to CPU for stability on Python 3.13
-        self.tokenizer = None
-        self.model = None
-        self._is_loaded = False
+        self.llm = ChatGroq(
+            model="llama-3.1-8b-instant",  # Ultra-fast model for classification
+            api_key=settings.groq_api_key,
+            temperature=0.0,
+            request_timeout=60.0
+        )
+        self._is_loaded = True
 
     def load_model(self):
-        if self._is_loaded:
-            return
-        
-        print(f"Loading MuRIL model ({self.model_id}) on {self.device}...")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-        self.model = AutoModelForSequenceClassification.from_pretrained(
-            self.model_id,
-            num_labels=2
-        ).to(self.device)
-        
-        # Only use half precision if on CUDA (CPU doesn't support many half-precision ops)
-        if self.device == "cuda":
-            self.model = self.model.half()
-            
-        self.model.eval()
-        self._is_loaded = True
-        print(f"MuRIL model loaded successfully on {self.device}.")
+        # No-op for cloud API
+        pass
 
-    def predict(self, text: str) -> DetectionResult:
-        self.load_model()
-            
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512).to(self.device)
+    async def predict(self, text: str) -> DetectionResult:
+        """Async version for better performance in the bot."""
+        sys_msg = SystemMessage(content="""You are an expert in spotting semantic manipulation and code-mixing inconsistencies in news text.
+Analyze the provided text and determine if it has been MANIPULATED (e.g., semantic drift, out-of-context phrases, code-mixing errors).
+Output ONLY a JSON object: {"manipulated_score": float (0.0-1.0), "verdict": "AUTHENTIC"|"MANIPULATED"}""")
         
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
-            
-            manipulated_score = probabilities[0][1].item()
-            
-        return DetectionResult(
-            score=manipulated_score,
-            metadata={"language": "auto", "device": self.device},
-            verdict="MANIPULATED" if manipulated_score > 0.6 else "AUTHENTIC"
-        )
+        try:
+            resp = await self.llm.ainvoke([sys_msg, HumanMessage(content=text)])
+            import json
+            res = json.loads(resp.content)
+            score = res.get("manipulated_score", 0.0)
+            return DetectionResult(
+                score=score,
+                metadata={"engine": "groq-cloud", "model": "llama-3.1-8b"},
+                verdict=res.get("verdict", "AUTHENTIC")
+            )
+        except Exception as e:
+            logger.error(f"MuRIL API Error: {e}")
+            return DetectionResult(score=0.0, metadata={"error": str(e)}, verdict="AUTHENTIC")

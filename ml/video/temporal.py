@@ -11,7 +11,10 @@ from typing import Any
 import cv2
 import numpy as np
 
+import structlog
 from ml.base import DetectionResult
+
+logger = structlog.get_logger()
 
 
 class TemporalConsistencyDetector:

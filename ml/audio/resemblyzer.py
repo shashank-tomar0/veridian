@@ -11,7 +11,13 @@ import struct
 
 import numpy as np
 
+import structlog
+import structlog
 from ml.base import DetectionResult
+
+logger = structlog.get_logger()
+
+logger = structlog.get_logger()
 
 
 class ResemblyzerDetector:
@@ -21,6 +27,7 @@ class ResemblyzerDetector:
         self.config = config or {}
         self.encoder = None
         self._is_loaded = False
+        self.uncalibrated = False
         self.sample_rate = 16000
         self.embedding_dim = 256
 
@@ -35,8 +42,11 @@ class ResemblyzerDetector:
             from resemblyzer import VoiceEncoder
 
             self.encoder = VoiceEncoder(device="cpu")
-        except ImportError:
-            # Fallback: mock encoder that produces random embeddings
+            self.uncalibrated = False
+        except Exception:
+            logger.warning("resemblyzer.weights_missing", message="VoiceEncoder weights/import failed. Running in uncalibrated mode.")
+            self.uncalibrated = True
+            # Fallback
             self.encoder = None
 
         self._is_loaded = True
@@ -101,6 +111,13 @@ class ResemblyzerDetector:
         """
         if not self._is_loaded:
             self.load_model()
+
+        if self.uncalibrated:
+            return DetectionResult(
+                score=0.0,
+                metadata={"status": "uncalibrated_fallback", "model": "Resemblyzer"},
+                verdict="SPEAKER_UNKNOWN"
+            )
 
         if isinstance(audio_input, str):
             with open(audio_input, "rb") as f:

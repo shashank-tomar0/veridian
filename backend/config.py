@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     claimbuster_api_key: str | None = None
     huggingface_hub_token: str | None = None
+    hf_token: str | None = None
     whatsapp_api_token: str | None = None
     whatsapp_verify_token: str | None = None
     telegram_bot_token: str | None = None
